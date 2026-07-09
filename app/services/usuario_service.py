@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import List
-
+from validate_docbr import CPF
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
@@ -65,6 +65,13 @@ def cadastrar_usuario(dados: UsuarioCriar, session: Session) -> UsuarioResposta:
 
     # Valida a senha — lança exceção se inválida
     validar_senha(dados.senha)
+
+    #verifica se o cpf é válido
+    if not CPF().validate(dados.cpf):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CPF inválido."
+        )
 
     novo_usuario = Usuario(
         nome=dados.nome,
