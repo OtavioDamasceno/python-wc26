@@ -1,14 +1,14 @@
-from sqlmodel import SQLModel, Field, Relationship # type: ignore[import]
+from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
-from typing import Optional, List, TYPE_CHECKING
-from models.enums import Palpite, StatusAposta
+from typing import Optional, TYPE_CHECKING
+from app.models.enums import Palpite, StatusAposta
 
 if TYPE_CHECKING:
-    from models.usuario import Usuario
-    from models.partida import Partida
+    from app.models.usuario import Usuario
+    from app.models.partida import Partida
+
 
 class Aposta(SQLModel, table=True):
-
     __tablename__ = "aposta"
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -20,5 +20,5 @@ class Aposta(SQLModel, table=True):
     status: StatusAposta = Field(default=StatusAposta.pendente)
     data_criacao: datetime = Field(default_factory=datetime.utcnow)
 
-    usuario: Optional[Usuario] = Relationship(back_populates="apostas")
-    partida: Optional[Partida] = Relationship(back_populates="apostas")
+    usuario: Optional["Usuario"] = Relationship(back_populates="apostas")
+    partida: Optional["Partida"] = Relationship(back_populates="apostas")

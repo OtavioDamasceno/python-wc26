@@ -1,10 +1,10 @@
-from sqlmodel import SQLModel, Field, Relationship  # type: ignore[import]
+from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
-from models.enums import StatusPartida, ResultadoPartida
+from app.models.enums import StatusPartida, ResultadoPartida
 from datetime import datetime
 
 if TYPE_CHECKING:
-    from models.aposta import Aposta
+    from app.models.aposta import Aposta
 
 
 class Partida(SQLModel, table=True):
