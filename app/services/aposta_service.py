@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
@@ -7,6 +8,13 @@ from app.models import (
     StatusAposta, StatusPartida,
     ApostaCriar, ApostaMultiplicar, ApostaResposta
 )
+from app.services.odds import calcular_odd_para_palpite
+
+
+def _partida_ja_iniciou(data_partida: datetime) -> bool:
+    """Compara datas ingênuas e datas com fuso sem misturá-las."""
+    agora = datetime.now(data_partida.tzinfo) if data_partida.tzinfo else datetime.utcnow()
+    return data_partida <= agora
 
 
 def criar_aposta(
@@ -29,7 +37,7 @@ def criar_aposta(
             detail="Partida não encontrada."
         )
 
-    if partida.status != StatusPartida.agendada:
+    if partida.status != StatusPartida.agendada or _partida_ja_iniciou(partida.data_partida):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Esta partida não está disponível para apostas."
@@ -41,6 +49,11 @@ def criar_aposta(
             detail="O valor apostado deve ser maior que zero."
         )
 
+    # Evita que duas requisições simultâneas gastem o mesmo saldo.
+    usuario = session.exec(
+        select(Usuario).where(Usuario.id == usuario.id).with_for_update()
+    ).one()
+
     if usuario.pontos < dados.pontos_apostados:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -51,12 +64,14 @@ def criar_aposta(
     usuario.pontos -= dados.pontos_apostados
     session.add(usuario)
 
+    odd_registrada = calcular_odd_para_palpite(dados.palpite, dados.id_partida, session)
     aposta = Aposta(
         id_usuario=usuario.id,
         id_partida=dados.id_partida,
         palpite=dados.palpite,
         multiplicador=1.0,
         pontos_apostados=dados.pontos_apostados,
+        odd_registrada=odd_registrada,
         status=StatusAposta.pendente,
     )
 
@@ -102,6 +117,13 @@ def multiplicar_aposta(
             detail="Só é possível multiplicar apostas pendentes."
         )
 
+    partida = session.get(Partida, aposta.id_partida)
+    if not partida or partida.status != StatusPartida.agendada or _partida_ja_iniciou(partida.data_partida):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta partida não está mais disponível para apostas."
+        )
+
     if dados.multiplicador < 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -117,6 +139,10 @@ def multiplicar_aposta(
     # Custo = pontos apostados * diferença entre multiplicadores
     diferenca = dados.multiplicador - aposta.multiplicador
     custo_adicional = aposta.pontos_apostados * diferenca
+
+    usuario = session.exec(
+        select(Usuario).where(Usuario.id == usuario.id).with_for_update()
+    ).one()
 
     if usuario.pontos < custo_adicional:
         raise HTTPException(

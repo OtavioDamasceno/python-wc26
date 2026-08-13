@@ -15,11 +15,20 @@ from app.models import Usuario, StatusUsuario
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "chave_secreta_padrao_troque_em_producao")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY deve ser configurada no ambiente.")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt 5.x é incompatível com a checagem interna do passlib 1.7.4 e faz o
+# cadastro retornar 500. Novas senhas usam PBKDF2-SHA256; bcrypt continua
+# aceito para permitir login de contas criadas antes desta alteração.
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256", "bcrypt"],
+    default="pbkdf2_sha256",
+    deprecated="auto",
+)
 
 # HTTPBearer — campo Swagger 
 bearer_scheme = HTTPBearer()

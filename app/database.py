@@ -1,4 +1,5 @@
 import os
+from sqlalchemy import inspect, text
 from sqlmodel import SQLModel, create_engine, Session
 from dotenv import load_dotenv
 
@@ -23,12 +24,31 @@ DATABASE_URL = (
 engine = create_engine(DATABASE_URL, echo=True)
 
 
+def reseta_tabelas():
+    """
+    Reseta todas as tabelas no banco de dados.
+    """
+    SQLModel.metadata.drop_all(engine)
+
 def criar_tabelas():
     """
     Cria todas as tabelas no banco de dados caso elas não existam.
     Será chamada quando o FastAPI iniciar.
     """
     SQLModel.metadata.create_all(engine)
+    _migrar_coluna_odd_registrada()
+
+
+def _migrar_coluna_odd_registrada():
+    """Adiciona a coluna de odd em bancos criados antes dessa regra."""
+    inspector = inspect(engine)
+    if "aposta" not in inspector.get_table_names():
+        return
+
+    colunas = {coluna["name"] for coluna in inspector.get_columns("aposta")}
+    if "odd_registrada" not in colunas:
+        with engine.begin() as conexao:
+            conexao.execute(text("ALTER TABLE aposta ADD COLUMN odd_registrada FLOAT NULL"))
 
 
 def get_session():

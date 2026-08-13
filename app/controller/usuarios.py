@@ -30,7 +30,6 @@ def cadastrar(dados: UsuarioCriar, session: Session = Depends(get_session)):
     """
     return usuario_service.cadastrar_usuario(dados, session)
 
-
 @router_auth.post(
     "/login",
     response_model=TokenResposta,
@@ -98,7 +97,6 @@ def ranking(session: Session = Depends(get_session)):
 def listar(admin: Usuario = Depends(get_admin_atual), session: Session = Depends(get_session)):
     """Lista todos os usuários cadastrados. Requer perfil admin."""
     return usuario_service.listar_usuarios(session)
-
 
 @router_usuarios.get(
     "/cpf/{cpf}",

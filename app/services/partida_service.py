@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from app.models import (
     Partida, Aposta, Usuario, StatusPartida, StatusAposta,
-    ResultadoPartida, Palpite, PartidaCriar, PartidaResposta,
+    ResultadoPartida, PartidaCriar, PartidaResposta,
     PartidaFinalizarSchema
 )
 from app.services.odds import calcular_odds
@@ -18,6 +18,16 @@ from app.services.usuario_service import verificar_e_excluir_se_zerou
 # Configuração da API Externa (.env)
 FOOTBALL_API_URL = os.getenv("FOOTBALL_API_URL", "https://worldcup26.ir/get/games")
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY")
+FALLBACK_MATCHES_URL = os.getenv(
+    "FOOTBALL_API_FALLBACK_URL",
+    "https://raw.githubusercontent.com/rezarahiminia/worldcup2026/"
+    "b632809e5a472485555449bbc08a20eaf00d33c0/football.matches.json",
+)
+FALLBACK_TEAMS_URL = os.getenv(
+    "FOOTBALL_TEAMS_FALLBACK_URL",
+    "https://raw.githubusercontent.com/rezarahiminia/worldcup2026/"
+    "b632809e5a472485555449bbc08a20eaf00d33c0/football.teams.json",
+)
 
 
 # Criar / Importar partidas
@@ -48,11 +58,41 @@ def importar_partidas_da_api(session: Session) -> dict:
             headers["Authorization"] = f"Bearer {FOOTBALL_API_KEY}"
 
         response = httpx.get(FOOTBALL_API_URL, headers=headers, timeout=10.0)
-        response.raise_for_status()
-        jogos = response.json()
-        
-        # O retorno da API para partidas fica dentro da chave "games"
-        lista_jogos = jogos.get("games", [])
+
+        if response.status_code == status.HTTP_404_NOT_FOUND:
+            # O domínio original deixou de disponibilizar /get/games. Mantemos
+            # um arquivo público e versionado como fallback até uma nova API ser
+            # configurada em FOOTBALL_API_URL.
+            partidas_fallback = httpx.get(FALLBACK_MATCHES_URL, timeout=10.0)
+            equipes_fallback = httpx.get(FALLBACK_TEAMS_URL, timeout=10.0)
+            partidas_fallback.raise_for_status()
+            equipes_fallback.raise_for_status()
+
+            nomes_equipes = {
+                str(equipe["id"]): equipe["name_en"]
+                for equipe in equipes_fallback.json()
+                if equipe.get("id") and equipe.get("name_en")
+            }
+            lista_jogos = [
+                {
+                    **jogo,
+                    "home_team_name_en": (
+                        nomes_equipes.get(str(jogo.get("home_team_id")))
+                        or jogo.get("home_team_label")
+                    ),
+                    "away_team_name_en": (
+                        nomes_equipes.get(str(jogo.get("away_team_id")))
+                        or jogo.get("away_team_label")
+                    ),
+                }
+                for jogo in partidas_fallback.json()
+            ]
+            fonte = "fallback versionado"
+        else:
+            response.raise_for_status()
+            jogos = response.json()
+            lista_jogos = jogos.get("games", [])
+            fonte = "API externa"
         
     except httpx.HTTPError as e:
         raise HTTPException(
@@ -116,9 +156,13 @@ def importar_partidas_da_api(session: Session) -> dict:
     session.commit()
 
     return {
-        "mensagem": f"{importadas} partida(s) importada(s), {ignoradas} ignorada(s).",
+        "mensagem": (
+            f"{importadas} partida(s) importada(s), {ignoradas} ignorada(s). "
+            f"Fonte: {fonte}."
+        ),
         "importadas": importadas,
-        "ignoradas": ignoradas
+        "ignoradas": ignoradas,
+        "fonte": fonte,
     }
 
 
@@ -135,7 +179,10 @@ def listar_partidas_ativas(session: Session) -> List[PartidaResposta]:
     Usado em HU8 — ver apostas ativas.
     """
     partidas = session.exec(
-        select(Partida).where(Partida.status == StatusPartida.agendada)
+        select(Partida).where(
+            Partida.status == StatusPartida.agendada,
+            Partida.data_partida > datetime.utcnow(),
+        )
     ).all()
     return [_partida_para_resposta(p, session) for p in partidas]
 
@@ -222,9 +269,6 @@ def finalizar_partida(
             detail="Esta partida já foi finalizada."
         )
 
-    # Captura as odds ANTES de finalizar
-    odds_snapshot = calcular_odds(id_partida, session)
-
     # Atualiza a partida
     partida.resultado = dados.resultado
     partida.status = StatusPartida.finalizada
@@ -246,19 +290,17 @@ def finalizar_partida(
             continue
 
         if dados.resultado == ResultadoPartida.empate:
-            # Devolve os pontos apostados
-            usuario.pontos += aposta.pontos_apostados
+            # Devolve todo o valor efetivamente descontado, incluindo multiplicador.
+            usuario.pontos += aposta.pontos_apostados * aposta.multiplicador
             aposta.status = StatusAposta.devolvida
             resolvidas["devolvidas"] += 1
 
         elif aposta.palpite.value == dados.resultado.value:
-            # Acertou! Calcula o ganho com base na odd do palpite
-            mapa_odd = {
-                Palpite.time_a: odds_snapshot["time_a"],
-                Palpite.time_b: odds_snapshot["time_b"],
-                Palpite.empate: odds_snapshot["empate"],
-            }
-            odd = mapa_odd.get(aposta.palpite, 1.0)
+            # Aposta nova tem a odd congelada na criação. O fallback suporta
+            # registros anteriores à migração.
+            odd = aposta.odd_registrada
+            if odd is None:
+                odd = calcular_odds(id_partida, session)[aposta.palpite.value]
             ganho = round(aposta.pontos_apostados * aposta.multiplicador * odd, 2)
             usuario.pontos += ganho
             aposta.status = StatusAposta.ganha
@@ -273,8 +315,7 @@ def finalizar_partida(
             verificar_e_excluir_se_zerou(usuario, session)
 
         session.add(aposta)
-        if session.get(Usuario, aposta.id_usuario):  # Usuário ainda existe?
-            session.add(usuario)
+        session.add(usuario)
 
     session.commit()
 

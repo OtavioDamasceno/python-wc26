@@ -94,6 +94,7 @@ class ApostaResposta(SQLModel):
     palpite: Palpite
     multiplicador: float
     pontos_apostados: float
+    odd_registrada: Optional[float] = None
     status: StatusAposta
     data_criacao: datetime
 

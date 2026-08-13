@@ -17,6 +17,8 @@ class Aposta(SQLModel, table=True):
     palpite: Palpite
     multiplicador: float = Field(default=1.0)
     pontos_apostados: float
+    # A odd precisa ser congelada ao registrar a aposta; ela pode mudar depois.
+    odd_registrada: Optional[float] = Field(default=None)
     status: StatusAposta = Field(default=StatusAposta.pendente)
     data_criacao: datetime = Field(default_factory=datetime.utcnow)
 

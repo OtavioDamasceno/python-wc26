@@ -225,10 +225,9 @@ def ver_ranking(session: Session) -> List[RankingItem]:
 
 def verificar_e_excluir_se_zerou(usuario: Usuario, session: Session) -> None:
     """
-    Regra de negócio: se o usuário ficou com 0 pontos ou menos, é excluído.
-    Chamado após resolver apostas perdidas.
+    Regra de negócio: se o usuário ficou com 0 pontos ou menos, é inativado.
+    Não faz commit: a resolução de apostas precisa ser atômica.
     """
     if usuario.pontos <= 0:
         usuario.pontos = 0
-        session.delete(usuario)
-        session.commit()
+        usuario.status = StatusUsuario.inativo
