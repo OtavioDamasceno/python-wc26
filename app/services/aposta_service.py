@@ -36,12 +36,11 @@ def criar_aposta(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Partida não encontrada."
         )
-
-    if partida.status != StatusPartida.agendada or _partida_ja_iniciou(partida.data_partida):
+    if partida.status != StatusPartida.agendada:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta partida não está disponível para apostas."
-        )
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Esta partida não está disponível para apostas."
+    )
 
     if dados.pontos_apostados <= 0:
         raise HTTPException(

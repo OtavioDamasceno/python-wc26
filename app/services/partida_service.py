@@ -179,10 +179,9 @@ def listar_partidas_ativas(session: Session) -> List[PartidaResposta]:
     Usado em HU8 — ver apostas ativas.
     """
     partidas = session.exec(
-        select(Partida).where(
-            Partida.status == StatusPartida.agendada,
-            Partida.data_partida > datetime.utcnow(),
-        )
+    select(Partida).where(
+        Partida.status == StatusPartida.agendada,
+    )
     ).all()
     return [_partida_para_resposta(p, session) for p in partidas]
 
